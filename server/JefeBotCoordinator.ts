@@ -141,21 +141,39 @@ export class Rich$teve BotCoordinator {
     await this.elMaestroDelJuego.onGiftReceived(gift.username, gift.giftName);
   }
 
-  // SUGO API Integration (mock for now - will need real SUGO API)
+  // SUGO API Integration
   private async sendToSUGO(message: string): Promise<void> {
-    // This would be the actual SUGO API call
-    // For now, just log it
     console.log(`[SUGO Chat] ${message}`);
 
-    // TODO: Implement actual SUGO chat API
-    // await fetch(`https://sugo-api.example.com/rooms/${this.config.sugoRoomId}/messages`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Bearer ${this.config.botAccountToken}`,
-    //     'Content-Type': 'application/json'
-    //   },
-    //   body: JSON.stringify({ message })
-    // });
+    // STEP 1: Replace this URL with the one you found in DevTools
+    const SUGO_API_URL = 'PASTE_YOUR_SUGO_API_URL_HERE';
+    // Example: 'https://api.sugo.com/v1/chat/send'
+
+    // STEP 2: Make sure your bot token is entered in the dashboard
+    // It will be available as this.config.botAccountToken
+
+    try {
+      const response = await fetch(SUGO_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.config.botAccountToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          room_id: this.config.sugoRoomId,
+          message: message,
+          // Add any other fields SUGO expects - check DevTools "Payload" tab
+        })
+      });
+
+      if (!response.ok) {
+        console.error(`[SUGO] Failed to send message: ${response.status}`);
+      } else {
+        console.log(`[SUGO] ✅ Message sent successfully`);
+      }
+    } catch (error) {
+      console.error(`[SUGO] Error sending message:`, error);
+    }
   }
 
   getState(): BotState {
