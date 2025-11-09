@@ -52,11 +52,14 @@ export class SugoClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private opts: SugoClientOpts;
   private timer: NodeJS.Timeout | null = null;
+  private appHeartbeatTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private helloTimer: NodeJS.Timeout | null = null;
   private closedManually = false;
-  private stage: 'idle' | 'awaiting_connect_response' | 'subscribed' = 'idle';
+  private stage: 'idle' | 'awaiting_connect_response' | 'awaiting_join_response' | 'subscribed' = 'idle';
   private joined = false; // Single-flight JOIN guard
+  private lastPong: number = Date.now();
+  private retries: number = 0;
 
   constructor(opts: SugoClientOpts) {
     super();
@@ -96,7 +99,11 @@ export class SugoClient extends EventEmitter {
 
       this.emit('open');
       this.emit('log', 'SUGO: Protocol accepted, proceeding with handshake');
-      this.startHeartbeat();
+      this.retries = 0; // Reset retry counter on successful connection
+      this.lastPong = Date.now();
+
+      // Start WS-level ping/pong monitoring
+      this.startWsPing();
 
       // Fallback: if no hello in 500ms, send CONNECT ourselves (client-first protocol)
       this.helloTimer = setTimeout(() => {
@@ -108,11 +115,12 @@ export class SugoClient extends EventEmitter {
           this.ws?.send(connectFrame);
           this.emit('log', 'SUGO: Sent CONNECT (client-first fallback)');
           this.stage = 'awaiting_connect_response';
-        } else {
-          // No CONNECT frame defined, go straight to JOIN
-          this.sendJoin();
         }
       }, 500);
+    });
+
+    this.ws.on('pong', () => {
+      this.lastPong = Date.now();
     });
 
     this.ws.on('message', (data: WebSocket.RawData) => {
@@ -155,16 +163,28 @@ export class SugoClient extends EventEmitter {
           clearTimeout(this.helloTimer);
           this.helloTimer = null;
         }
-        this.emit('log', 'SUGO: Received server hello');
+        this.emit('log', 'SUGO: Received server hello (cmd 338)');
 
-        // Protocol auth may auto-subscribe - skip JOIN and just listen
-        this.stage = 'subscribed';
-        this.joined = true;
-        this.emit('log', 'SUGO: Marked as subscribed (protocol auth), listening for all messages...');
+        // CRITICAL: Immediately send JOIN with credentials
+        this.stage = 'awaiting_join_response';
+        const joinFrame = this.opts.makeJoinFrame(this.opts.roomId);
+        this.emit('log', `WIRE>> ${joinFrame.slice(0, 200)}`);
+        this.ws?.send(joinFrame);
+        this.emit('log', 'SUGO: Sent JOIN with credentials');
+
+        // Start app-level heartbeat after JOIN
+        this.startAppHeartbeat();
 
         // Route the hello message
         this.routeMessage(text);
         return;
+      }
+
+      // 2) After JOIN, mark as fully subscribed
+      if (this.stage === 'awaiting_join_response') {
+        this.stage = 'subscribed';
+        this.joined = true;
+        this.emit('log', 'SUGO: JOIN accepted, fully subscribed');
       }
 
       // 2) Waiting for server to accept CONNECT
@@ -196,20 +216,31 @@ export class SugoClient extends EventEmitter {
 
     this.ws.on('close', (code, reason) => {
       this.emit('close', code, reason.toString());
-      this.stopHeartbeat();
+      this.stopWsPing();
+      this.stopAppHeartbeat();
+      this.stage = 'idle';
+      this.joined = false;
+
       if (!this.closedManually) {
+        // Special handling for infra errors (500, 525)
+        if (code === 1006 || code === 1011) {
+          this.emit('log', 'SUGO: Abnormal close or server error, backing off');
+          this.retries = Math.max(this.retries, 3); // Jump to longer backoff
+        }
         this.scheduleReconnect();
       }
     });
 
     this.ws.on('error', (err) => {
       this.emit('error', err as Error);
+      // Don't reconnect on error - let 'close' event handle it
     });
   }
 
   disconnect() {
     this.closedManually = true;
-    this.stopHeartbeat();
+    this.stopWsPing();
+    this.stopAppHeartbeat();
     if (this.helloTimer) {
       clearTimeout(this.helloTimer);
       this.helloTimer = null;
@@ -304,22 +335,55 @@ export class SugoClient extends EventEmitter {
     return true;
   }
 
-  private startHeartbeat() {
-    const ms = this.opts.heartbeatMs ?? 25000;
-    this.stopHeartbeat();
+  private startWsPing() {
+    this.stopWsPing();
     this.timer = setInterval(() => {
-      // If SUGO expects a specific ping, add it here. Most stacks accept WS-level ping.
+      // Check if pong is too old (5s grace period)
+      if (Date.now() - this.lastPong > 5000) {
+        this.emit('log', 'SUGO: No pong received, terminating connection');
+        this.ws?.terminate();
+        return;
+      }
+      // Send WS-level ping
       try { this.ws?.ping(); } catch {}
-    }, ms);
+    }, 15000); // Every 15s
   }
 
-  private stopHeartbeat() {
+  private stopWsPing() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
 
+  private startAppHeartbeat() {
+    const ms = this.opts.heartbeatMs ?? 25000;
+    this.stopAppHeartbeat();
+    this.appHeartbeatTimer = setInterval(() => {
+      // Send app-level heartbeat frame
+      // TODO: Discover the exact cmd for heartbeat from Proxyman
+      // For now, we'll rely on WS pings
+      try {
+        const hb = JSON.stringify({ cmd: 0, data: { ts: Date.now() } });
+        this.ws?.send(hb);
+        this.emit('log', 'SUGO: Sent app-level heartbeat');
+      } catch {}
+    }, ms);
+  }
+
+  private stopAppHeartbeat() {
+    if (this.appHeartbeatTimer) clearInterval(this.appHeartbeatTimer);
+    this.appHeartbeatTimer = null;
+  }
+
   private scheduleReconnect(refresh = false) {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+
+    // Exponential backoff: 1s, 2s, 5s, 10s, 30s (capped)
+    const delays = [1000, 2000, 5000, 10000, 30000];
+    const delay = delays[Math.min(this.retries, delays.length - 1)];
+    this.retries++;
+
+    this.emit('log', `SUGO: Reconnecting in ${delay}ms (attempt ${this.retries})...`);
+
     this.reconnectTimer = setTimeout(async () => {
       if (refresh && this.opts.refreshToken) {
         this.emit('log', 'SUGO: Refreshing token before reconnect...');
@@ -338,7 +402,7 @@ export class SugoClient extends EventEmitter {
         }
       }
       this.connect();
-    }, 1500);
+    }, delay);
   }
 
   private tryDecode(buf: Buffer): string | null {

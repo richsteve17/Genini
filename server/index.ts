@@ -125,12 +125,15 @@ function buildSugo() {
   };
 
   const makeJoinFrame = (roomId: string) => {
-    // SUGO uses cmd-based protocol, not Centrifugo
-    // Try common subscription cmd codes: 100, 101, 102
+    // After cmd 338 hello, send JOIN with full credentials
+    // Using metadata from the protocol subprotocol
     return JSON.stringify({
-      cmd: 101,  // Common "join room" cmd
-      sn: 1,     // Small sequence number
+      cmd: 100,  // JOIN/SUBSCRIBE cmd (to be discovered from Proxyman)
       data: {
+        uid: config.botConfig.sugoUid,
+        did: config.botConfig.sugoDeviceId || '',
+        version: config.botConfig.sugoAppVersion || 'vc-392401-vn-2.40.1',
+        activity_id: config.botConfig.sugoActivityId || 10233,
         room_id: roomId
       }
     });
