@@ -101,14 +101,26 @@ function buildSugo() {
   // 3. Server responds with connected
   // 4. Client sends SUBSCRIBE to channel
 
-  const makeAuthFrame = () => JSON.stringify({
-    id: 1,
-    method: 'connect',
-    params: {
-      token: config.botConfig.botAccountToken,
-      data: { uid: config.botConfig.sugoUid }
-    }
-  });
+  // Try multiple auth formats until we find the right one
+  let authAttempt = 0;
+  const makeAuthFrame = () => {
+    authAttempt++;
+    const formats = [
+      // Format 1: Centrifugo-style with token in params
+      { id: 1, connect: { token: config.botConfig.botAccountToken, name: 'bot' } },
+      // Format 2: Simple token + uid
+      { token: config.botConfig.botAccountToken, uid: config.botConfig.sugoUid },
+      // Format 3: Auth type with credentials
+      { type: 'auth', token: config.botConfig.botAccountToken, uid: config.botConfig.sugoUid },
+      // Format 4: Original Centrifugo params style
+      { id: 1, method: 'connect', params: { token: config.botConfig.botAccountToken, data: { uid: config.botConfig.sugoUid } } },
+      // Format 5: Token at root with subs
+      { token: config.botConfig.botAccountToken, subs: { [`room:${config.botConfig.sugoRoomId}`]: {} } }
+    ];
+    const idx = (authAttempt - 1) % formats.length;
+    log(`SUGO: Trying auth format ${idx + 1}/${formats.length}`);
+    return JSON.stringify(formats[idx]);
+  };
 
   const makeJoinFrame = (roomId: string) => JSON.stringify({
     id: 2,

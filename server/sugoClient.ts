@@ -77,6 +77,7 @@ export class SugoClient extends EventEmitter {
         this.emit('log', 'SUGO: No hello received, sending client-first CONNECT...');
         const connectFrame = this.opts.makeAuthFrame?.();
         if (connectFrame) {
+          this.emit('log', `WIRE>> ${connectFrame.slice(0, 200)}`);
           this.ws?.send(connectFrame);
           this.emit('log', 'SUGO: Sent CONNECT (client-first fallback)');
           this.stage = 'awaiting_connect_response';
@@ -114,6 +115,7 @@ export class SugoClient extends EventEmitter {
         this.emit('log', 'SUGO: Received server hello, sending CONNECT...');
         const connectFrame = this.opts.makeAuthFrame?.();
         if (connectFrame) {
+          this.emit('log', `WIRE>> ${connectFrame.slice(0, 200)}`);
           this.ws?.send(connectFrame);
           this.emit('log', 'SUGO: Sent CONNECT (hello-first path)');
           this.stage = 'awaiting_connect_response';
