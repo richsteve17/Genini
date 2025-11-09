@@ -95,19 +95,19 @@ function buildSugo() {
   const url = config.botConfig.sugoWsUrl;
   const headers = config.botConfig.sugoWsHeaders || {};
 
-  // Based on common live streaming WebSocket patterns, these are educated guesses
-  // We'll need to refine these based on what we see in the WebSocket messages
+  // SUGO is responding with "RECONNECT" to our auth frame
+  // Try including auth in the join frame instead, or try different formats
   const makeJoinFrame = (roomId: string) => JSON.stringify({
-    type: 'join_room',
-    room_id: roomId,
-    timestamp: Date.now()
+    authorization: config.botConfig.botAccountToken,
+    uid: config.botConfig.sugoUid,
+    room_id: roomId
   });
 
   const makeSendFrame = (roomId: string, text: string) => JSON.stringify({
-    type: 'chat_message',
     room_id: roomId,
-    message: text,
-    timestamp: Date.now()
+    content: text,
+    authorization: config.botConfig.botAccountToken,
+    uid: config.botConfig.sugoUid
   });
 
   const client = new SugoClient({

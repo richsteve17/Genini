@@ -54,26 +54,22 @@ export class SugoClient extends EventEmitter {
     this.ws.on('open', () => {
       this.emit('open');
 
-      // Send auth frame first if token/uid provided
-      if (this.opts.token && this.opts.uid) {
-        const authFrame = JSON.stringify({
-          type: 'auth',
-          authorization: this.opts.token,
-          uid: this.opts.uid
-        });
-        this.ws?.send(authFrame);
-        this.emit('log', 'SUGO: sent auth frame');
-      }
+      // Don't send separate auth frame - SUGO rejects it with "RECONNECT"
+      // Auth should be included in the join/subscribe frame
 
-      // Then send custom auth frame if provided
+      // Send custom auth frame if provided
       if (this.opts.makeAuthFrame) {
         const auth = this.opts.makeAuthFrame();
-        if (auth) this.ws?.send(auth);
+        if (auth) {
+          this.ws?.send(auth);
+          this.emit('log', 'SUGO: sent custom auth frame');
+        }
       }
 
-      // Then join room
+      // Send join room frame (with auth included in the frame itself)
       const joinFrame = this.opts.makeJoinFrame(this.opts.roomId);
       this.ws?.send(joinFrame);
+      this.emit('log', `SUGO: sent join frame`);
       this.startHeartbeat();
     });
 
