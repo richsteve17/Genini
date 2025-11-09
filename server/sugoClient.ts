@@ -46,23 +46,32 @@ export class SugoClient extends EventEmitter {
     this.closedManually = false;
     this.emit('log', `SUGO: connecting ${this.opts.url}`);
 
-    // SUGO uses auth via WebSocket subprotocol header
-    const protocol = this.opts.token && this.opts.uid
-      ? JSON.stringify({ authorization: this.opts.token, uid: this.opts.uid })
-      : undefined;
-
-    this.ws = new WebSocket(this.opts.url, protocol, {
+    this.ws = new WebSocket(this.opts.url, {
       headers: this.opts.headers,
       perMessageDeflate: true
     });
 
     this.ws.on('open', () => {
       this.emit('open');
+
+      // Send auth frame first if token/uid provided
+      if (this.opts.token && this.opts.uid) {
+        const authFrame = JSON.stringify({
+          type: 'auth',
+          authorization: this.opts.token,
+          uid: this.opts.uid
+        });
+        this.ws?.send(authFrame);
+        this.emit('log', 'SUGO: sent auth frame');
+      }
+
+      // Then send custom auth frame if provided
       if (this.opts.makeAuthFrame) {
         const auth = this.opts.makeAuthFrame();
         if (auth) this.ws?.send(auth);
       }
-      // join room after open/auth
+
+      // Then join room
       const joinFrame = this.opts.makeJoinFrame(this.opts.roomId);
       this.ws?.send(joinFrame);
       this.startHeartbeat();
