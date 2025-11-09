@@ -7,7 +7,7 @@ import { ElMaestroDelJuego } from './modules/ElMaestroDelJuego.js';
 import { ElHypeMan } from './modules/ElHypeMan.js';
 import { BotConfig, ModuleConfig, BotState, PKBattle, Gift } from './types.js';
 
-export class Rich$teve BotCoordinator {
+export class JefeBotCoordinator {
   private config: BotConfig;
   private moduleConfig: ModuleConfig;
   private state: BotState;
