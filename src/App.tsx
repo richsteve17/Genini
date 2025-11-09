@@ -86,7 +86,11 @@ function App() {
       });
 
     // Connect to WebSocket
-    const ws = new WebSocket(`ws://${window.location.hostname}:${window.location.port}/ws`);
+    // Use wss:// for HTTPS (production/Railway), ws:// for HTTP (local dev)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    console.log('Connecting to WebSocket:', wsUrl);
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log('Connected to Jefe Bot Server');
