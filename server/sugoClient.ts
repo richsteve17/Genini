@@ -137,16 +137,12 @@ export class SugoClient extends EventEmitter {
           clearTimeout(this.helloTimer);
           this.helloTimer = null;
         }
-        this.emit('log', 'SUGO: Received server hello, sending CONNECT...');
-        const connectFrame = this.opts.makeConnectFrame?.();
-        if (connectFrame) {
-          this.emit('log', `WIRE>> ${connectFrame.slice(0, 200)}`);
-          this.ws?.send(connectFrame);
-          this.emit('log', 'SUGO: Sent CONNECT (hello-first path)');
-          this.stage = 'awaiting_connect_response';
-        } else {
-          this.sendJoin();
-        }
+        this.emit('log', 'SUGO: Received server hello');
+
+        // Protocol auth may auto-subscribe - skip JOIN and just listen
+        this.stage = 'subscribed';
+        this.joined = true;
+        this.emit('log', 'SUGO: Marked as subscribed (protocol auth), listening for all messages...');
 
         // Route the hello message
         this.routeMessage(text);
