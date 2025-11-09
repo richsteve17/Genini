@@ -35,7 +35,9 @@ export class SugoClient extends EventEmitter {
   private opts: SugoClientOpts;
   private timer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private helloTimer: NodeJS.Timeout | null = null;
   private closedManually = false;
+  private stage: 'idle' | 'awaiting_connect_response' | 'subscribed' = 'idle';
 
   constructor(opts: SugoClientOpts) {
     super();
@@ -65,25 +67,27 @@ export class SugoClient extends EventEmitter {
 
     this.ws.on('open', () => {
       this.emit('open');
-      this.emit('log', 'SUGO: WebSocket opened, sending CONNECT immediately...');
+      this.emit('log', 'SUGO: WebSocket opened, waiting for server hello...');
+      this.emit('log', `SUGO: Negotiated protocol: ${(this.ws as any)?.protocol || 'none'}`);
       this.startHeartbeat();
 
-      // Send CONNECT frame immediately (server doesn't send hello first)
-      const connectFrame = this.opts.makeAuthFrame?.();
-      if (connectFrame) {
-        this.ws?.send(connectFrame);
-        this.emit('log', 'SUGO: Sent CONNECT frame');
-        stage = 'awaiting_connect_response';
-      } else {
-        // No auth frame, go straight to subscribe
-        const sub = this.opts.makeJoinFrame(this.opts.roomId);
-        this.ws?.send(sub);
-        this.emit('log', 'SUGO: Sent SUBSCRIBE frame (no auth needed)');
-        stage = 'subscribed';
-      }
+      // Fallback: if no hello in 500ms, send CONNECT ourselves (client-first protocol)
+      this.helloTimer = setTimeout(() => {
+        if (this.stage !== 'idle') return;
+        this.emit('log', 'SUGO: No hello received, sending client-first CONNECT...');
+        const connectFrame = this.opts.makeAuthFrame?.();
+        if (connectFrame) {
+          this.ws?.send(connectFrame);
+          this.emit('log', 'SUGO: Sent CONNECT (client-first fallback)');
+          this.stage = 'awaiting_connect_response';
+        } else {
+          // No CONNECT frame defined, go straight to JOIN
+          this.ws?.send(this.opts.makeJoinFrame(this.opts.roomId));
+          this.emit('log', 'SUGO: Sent JOIN (no CONNECT in this protocol)');
+          this.stage = 'subscribed';
+        }
+      }, 500);
     });
-
-    let stage: 'idle' | 'awaiting_connect_response' | 'subscribed' = 'idle';
 
     this.ws.on('message', (data: WebSocket.RawData) => {
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
@@ -92,39 +96,60 @@ export class SugoClient extends EventEmitter {
       const text = this.tryDecode(buf) ?? buf.toString('utf8');
 
       // Quick visibility while dialing in
-      this.emit('log', `WIRE<< ${text.slice(0, 120)}`);
+      this.emit('log', `WIRE<< ${text.slice(0, 160)}`);
 
-      // 1) Waiting for server to accept CONNECT
-      if (stage === 'awaiting_connect_response') {
-        this.emit('log', 'SUGO: Checking server response to CONNECT...');
-        // Heuristic: if server sends plain "RECONNECT" it means it didn't like your connect payload.
-        // If you see a JSON with { "result": { "client": ... } } or "connected", then subscribe.
-        try {
-          const j = JSON.parse(text);
-          this.emit('message', j);
-          if (j.result || j.connected || j.type === 'WELCOME' || j.type === 'CONNECTED') {
-            this.emit('log', 'SUGO: Server accepted CONNECT, sending SUBSCRIBE...');
-            const sub = this.opts.makeJoinFrame(this.opts.roomId);
-            this.ws?.send(sub);
-            this.emit('log', 'SUGO: Sent SUBSCRIBE frame');
-            stage = 'subscribed';
-          } else if (text.includes('RECONNECT') || text.includes('Not handshaked')) {
-            this.emit('log', 'SUGO: Server rejected with RECONNECT - auth failed!');
-          }
-        } catch {
-          // Not JSON, check for plain text indicators
-          this.emit('message', text);
-          if (/connected|welcome/i.test(text)) {
-            this.emit('log', 'SUGO: Server accepted (non-JSON), sending SUBSCRIBE...');
-            const sub = this.opts.makeJoinFrame(this.opts.roomId);
-            this.ws?.send(sub);
-            stage = 'subscribed';
-          }
+      // Special case: RECONNECT means server wants us to reconnect
+      if (/^"?RECONNECT"?$/i.test(text.trim())) {
+        this.emit('log', 'SUGO: Server requested RECONNECT');
+        this.scheduleReconnect();
+        return;
+      }
+
+      // 1) If we're still idle, server sent hello first (hello-first protocol)
+      if (this.stage === 'idle') {
+        if (this.helloTimer) {
+          clearTimeout(this.helloTimer);
+          this.helloTimer = null;
+        }
+        this.emit('log', 'SUGO: Received server hello, sending CONNECT...');
+        const connectFrame = this.opts.makeAuthFrame?.();
+        if (connectFrame) {
+          this.ws?.send(connectFrame);
+          this.emit('log', 'SUGO: Sent CONNECT (hello-first path)');
+          this.stage = 'awaiting_connect_response';
+        } else {
+          this.ws?.send(this.opts.makeJoinFrame(this.opts.roomId));
+          this.emit('log', 'SUGO: Sent JOIN');
+          this.stage = 'subscribed';
         }
         return;
       }
 
-      // 2) After subscribed, just emit normal messages
+      // 2) Waiting for server to accept CONNECT
+      if (this.stage === 'awaiting_connect_response') {
+        this.emit('log', 'SUGO: Checking server response to CONNECT...');
+        let ok = false;
+        try {
+          const j = JSON.parse(text);
+          this.emit('message', j);
+          ok = !!(j.result || j.connected || j.ok || j.type === 'WELCOME' || j.type === 'CONNECTED');
+        } catch {
+          this.emit('message', text);
+          ok = /connected|welcome|ok/i.test(text);
+        }
+
+        if (ok) {
+          this.emit('log', 'SUGO: Server accepted CONNECT, sending JOIN...');
+          this.ws?.send(this.opts.makeJoinFrame(this.opts.roomId));
+          this.emit('log', 'SUGO: Sent JOIN after CONNECT');
+          this.stage = 'subscribed';
+        } else {
+          this.emit('log', 'SUGO: Server response unclear, treating as rejection');
+        }
+        return;
+      }
+
+      // 3) After subscribed, just emit normal messages
       try {
         const j = JSON.parse(text);
         this.emit('message', j);
@@ -149,9 +174,14 @@ export class SugoClient extends EventEmitter {
   disconnect() {
     this.closedManually = true;
     this.stopHeartbeat();
+    if (this.helloTimer) {
+      clearTimeout(this.helloTimer);
+      this.helloTimer = null;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.close(1000, 'client-closed');
     this.ws = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.stage = 'idle';
   }
 
   isOpen() {

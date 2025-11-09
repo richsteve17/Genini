@@ -175,6 +175,11 @@ if (fs.existsSync(DIST_DIR)) {
   log(`Serving static files from ${DIST_DIR}`);
 }
 
+// Health check endpoints (prevent Railway from killing container)
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+app.get('/health', (_req, res) => res.status(200).send('ok'));
+app.get('/', (_req, res) => res.status(200).send('Rich $teve Bot up'));
+
 app.get('/api/config', (_req, res) => {
   res.json({
     botConfig: redactBotConfig(config.botConfig),
@@ -289,3 +294,27 @@ function redactBotConfig(b: BotConfig) {
 function log(msg: string) {
   console.log(`[R$ BOT] ${msg}`);
 }
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  log('SIGTERM received, shutting down gracefully');
+  try { sugo?.disconnect(); } catch {}
+  server.close(() => {
+    log('Server closed');
+    process.exit(0);
+  });
+  // Force exit after 10s if graceful shutdown hangs
+  setTimeout(() => {
+    log('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+});
+
+process.on('SIGINT', () => {
+  log('SIGINT received, shutting down gracefully');
+  try { sugo?.disconnect(); } catch {}
+  server.close(() => {
+    log('Server closed');
+    process.exit(0);
+  });
+});
