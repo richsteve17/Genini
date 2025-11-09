@@ -52,10 +52,10 @@ interface StoredConfig {
 const defaults: StoredConfig = {
   botConfig: {
     sugoRoomId: '1250911',
-    botAccountToken: 'daFxa7tiTQtH2vQh7I9Cl88cvmzc8ZeX', // FRESH token from latest Proxyman capture
+    botAccountToken: 'hh0IzrHHngg79OZQQwk8BcZZXJhoeGK4', // FRESH token from latest Proxyman capture
     sugoUid: '47585713',
     sugoDeviceId: '654fab11f3b88db3fbfdd2c400e63142a3b4f455',
-    sugoActivityId: 10233, // Updated from latest capture
+    sugoActivityId: 10231, // Updated from latest capture (was 10233)
     sugoAppVersion: 'vc-392401-vn-2.40.1',
     spotifyAccessToken: '',
     sugoWsUrl: 'wss://activity-ws-rpc.voicemaker.media/ws/activity',
@@ -63,10 +63,10 @@ const defaults: StoredConfig = {
       'Accept-Encoding': 'gzip, deflate',
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'no-cache',
-      'Origin': 'https://activity-h5.voicemaker.media', // CORRECTED from www.sugo.com
+      'Origin': 'https://activity-h5.voicemaker.media',
       'Pragma': 'no-cache',
       'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) SUGO/392401 version/vc-392401-vn-2.40.1 statusHeight/54.0 LangCode/en',
-      'Cookie': 'appsflyer-id=1734994530097-1901624; brand=iPhone; channel=AppStore; did=654fab11f3b88db3fbfdd2c400e63142a3b4f455; http_ip=; idfa=3984AFF3-7633-4298-91C0-7A89AFDE80F6; language=en; locale=en_US; mcc=65535; os=ios-26.1-iPhone 16 Pro Max; pkg=com.maker.sugo; show-id=47585713; timezone=-5; token=daFxa7tiTQtH2vQh7I9Cl88cvmzc8ZeX; uid=47585713; version=vc-392401-vn-2.40.1'
+      'Cookie': 'appsflyer-id=1734994530097-1901624; brand=iPhone; channel=AppStore; did=654fab11f3b88db3fbfdd2c400e63142a3b4f455; http_ip=; idfa=3984AFF3-7633-4298-91C0-7A89AFDE80F6; language=en; locale=en_US; mcc=65535; os=ios-26.1-iPhone 16 Pro Max; pkg=com.maker.sugo; show-id=47585713; timezone=-5; token=hh0IzrHHngg79OZQQwk8BcZZXJhoeGK4; uid=47585713; version=vc-392401-vn-2.40.1'
     }
   },
   moduleConfig: {
@@ -102,9 +102,20 @@ function buildSugo() {
   const url = config.botConfig.sugoWsUrl;
   const headers = config.botConfig.sugoWsHeaders || {};
 
-  // Send ONLY the token as subprotocol (metadata goes in JOIN frame)
-  const buildProtocol = (token: string): string => {
-    return token;
+  // Build the exact two-protocol format from Proxyman capture:
+  // Protocol 1: token
+  // Protocol 2: URL-encoded JSON with uid, did, version, activity_id
+  const buildProtocol = (token: string, uid: string, deviceId: string, version: string, activityId: number): string[] => {
+    const metadata = JSON.stringify({
+      uid,
+      did: deviceId,
+      version,
+      activity_id: activityId
+    });
+    return [
+      token,
+      encodeURIComponent(metadata)
+    ];
   };
 
   const makeConnectFrame = () => {
@@ -178,14 +189,26 @@ function buildSugo() {
     // TODO: Implement the pre-WS HTTP call if you capture one
     // For now, rebuild protocol from stored credentials
     log('SUGO: Rebuilding protocol from stored credentials');
-    const protocol = buildProtocol(config.botConfig.botAccountToken);
-    return { protocol };
+    const protocols = buildProtocol(
+      config.botConfig.botAccountToken,
+      config.botConfig.sugoUid,
+      config.botConfig.sugoDeviceId || '',
+      config.botConfig.sugoAppVersion || 'vc-392401-vn-2.40.1',
+      config.botConfig.sugoActivityId || 10231
+    );
+    return { protocol: protocols };
   };
 
   const client = new SugoClient({
     url,
     headers,
-    protocols: buildProtocol(config.botConfig.botAccountToken),
+    protocols: buildProtocol(
+      config.botConfig.botAccountToken,
+      config.botConfig.sugoUid,
+      config.botConfig.sugoDeviceId || '',
+      config.botConfig.sugoAppVersion || 'vc-392401-vn-2.40.1',
+      config.botConfig.sugoActivityId || 10231
+    ),
     roomId: config.botConfig.sugoRoomId,
     token: config.botConfig.botAccountToken,
     uid: config.botConfig.sugoUid,
