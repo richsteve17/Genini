@@ -152,6 +152,13 @@ function buildSugo() {
 const app = express();
 app.use(express.json());
 
+// Serve static files from Vite build in production
+const DIST_DIR = path.resolve(process.cwd(), 'dist');
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  log(`Serving static files from ${DIST_DIR}`);
+}
+
 app.get('/api/config', (_req, res) => {
   res.json({
     botConfig: redactBotConfig(config.botConfig),
@@ -215,6 +222,16 @@ app.post('/api/test/vibe-check', (_req, res) => {
     if (sugo?.isOpen()) sugo.sendChat('🎧 Vibe check: 1 = mid, 5 = banger. Drop your number.');
   }
   res.json({ ok: true });
+});
+
+// Serve index.html for all other routes (SPA fallback)
+app.get('*', (_req, res) => {
+  const indexPath = path.join(DIST_DIR, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send('App not built. Run `npm run build` first.');
+  }
 });
 
 // -------------- HTTP + WS server --------------
