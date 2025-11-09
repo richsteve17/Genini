@@ -72,6 +72,8 @@ function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [botState, setBotState] = useState<BotState>({});
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected'>('disconnected');
+  const [testChatMessage, setTestChatMessage] = useState('🎯 Test from Jefe Bot');
+  const [testChatStatus, setTestChatStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     // Load initial config
@@ -176,6 +178,28 @@ function App() {
 
   const testVibeCheck = async () => {
     await fetch('/api/test/vibe-check', { method: 'POST' });
+  };
+
+  const testChat = async () => {
+    setTestChatStatus('sending');
+    try {
+      const res = await fetch('/api/test/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: testChatMessage })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestChatStatus('success');
+        setTimeout(() => setTestChatStatus('idle'), 2000);
+      } else {
+        setTestChatStatus('error');
+        setTimeout(() => setTestChatStatus('idle'), 3000);
+      }
+    } catch (err) {
+      setTestChatStatus('error');
+      setTimeout(() => setTestChatStatus('idle'), 3000);
+    }
   };
 
   return (
@@ -426,6 +450,35 @@ function App() {
           <button onClick={testGift} disabled={!isRunning}>
             Test Big Gift
           </button>
+        </div>
+
+        <div className="test-chat-section">
+          <h4>💬 Send Test Message</h4>
+          <div className="test-chat-controls">
+            <input
+              type="text"
+              value={testChatMessage}
+              onChange={(e) => setTestChatMessage(e.target.value)}
+              placeholder="Enter test message..."
+              disabled={!isRunning || testChatStatus === 'sending'}
+            />
+            <button
+              onClick={testChat}
+              disabled={!isRunning || testChatStatus === 'sending'}
+              className={`test-chat-btn ${testChatStatus}`}
+            >
+              {testChatStatus === 'sending' && '⏳ Sending...'}
+              {testChatStatus === 'success' && '✅ Sent!'}
+              {testChatStatus === 'error' && '❌ Failed'}
+              {testChatStatus === 'idle' && '📤 Send to Chat'}
+            </button>
+          </div>
+          {testChatStatus === 'success' && (
+            <div className="test-feedback success">Message sent to SUGO chat!</div>
+          )}
+          {testChatStatus === 'error' && (
+            <div className="test-feedback error">Failed to send - check if bot is connected</div>
+          )}
         </div>
       </div>
 
