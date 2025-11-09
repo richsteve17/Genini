@@ -206,6 +206,15 @@ function App() {
     }
   };
 
+  const testChatDiscovery = async () => {
+    try {
+      await fetch('/api/test/chat-discovery', { method: 'POST' });
+      alert('Testing 4 chat formats - check Railway logs for server responses!');
+    } catch (err) {
+      alert('Discovery test failed - check connection');
+    }
+  };
+
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -453,6 +462,9 @@ function App() {
           </button>
           <button onClick={testGift} disabled={!isRunning}>
             Test Big Gift
+          </button>
+          <button onClick={testChatDiscovery} disabled={!isRunning} style={{ backgroundColor: '#9333ea' }}>
+            🔍 Discover Chat Format
           </button>
         </div>
 

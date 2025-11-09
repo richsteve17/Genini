@@ -353,6 +353,65 @@ app.post('/api/test/chat', (req, res) => {
   res.json({ success: sent });
 });
 
+// Diagnostic: Try multiple chat formats to discover the correct one
+app.post('/api/test/chat-discovery', (req, res) => {
+  if (!sugo?.isOpen()) {
+    return res.status(400).json({ success: false, message: 'SUGO not connected' });
+  }
+
+  const roomId = config.botConfig.sugoRoomId;
+  const testMsg = '🔍 Format discovery test';
+
+  log('===== CHAT FORMAT DISCOVERY =====');
+
+  // Format 1: cmd 301 with content field
+  const f1 = JSON.stringify({
+    cmd: 301,
+    sn: Date.now(),
+    data: { content: testMsg, room_id: roomId }
+  });
+  log(`TRY 1 (cmd 301): ${f1}`);
+  (sugo as any).ws?.send(f1);
+
+  // Format 2: cmd 302 with msg field
+  setTimeout(() => {
+    const f2 = JSON.stringify({
+      cmd: 302,
+      sn: Date.now() + 1,
+      data: { msg: testMsg, room: roomId }
+    });
+    log(`TRY 2 (cmd 302): ${f2}`);
+    (sugo as any).ws?.send(f2);
+  }, 1000);
+
+  // Format 3: cmd 310 with message wrapper
+  setTimeout(() => {
+    const f3 = JSON.stringify({
+      cmd: 310,
+      sn: Date.now() + 2,
+      data: { message: { text: testMsg, type: 1 }, room_id: roomId }
+    });
+    log(`TRY 3 (cmd 310): ${f3}`);
+    (sugo as any).ws?.send(f3);
+  }, 2000);
+
+  // Format 4: Centrifugo-style (original)
+  setTimeout(() => {
+    const f4 = JSON.stringify({
+      id: Date.now() + 3,
+      method: 'publish',
+      params: { channel: `room:${roomId}`, data: { message: testMsg } }
+    });
+    log(`TRY 4 (Centrifugo): ${f4}`);
+    (sugo as any).ws?.send(f4);
+  }, 3000);
+
+  log('===== Watch the logs above for server responses =====');
+  log('===== If one format works, you\'ll see it echo or get confirmation =====');
+
+  res.json({ success: true, message: 'Testing 4 formats over 3 seconds - watch logs for responses' });
+});
+
 // Serve index.html for all other routes (SPA fallback)
 app.get('*', (_req, res) => {
   const indexPath = path.join(DIST_DIR, 'index.html');
