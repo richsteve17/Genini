@@ -78,11 +78,12 @@ Rich $teve Bot is your **four-module interactive MC system** that creates consta
 # Install dependencies
 npm install
 
-# Start the backend server (in one terminal)
-npm run server
-
-# Start the dashboard (in another terminal)
+# Start the backend + dashboard together (recommended)
 npm run dev
+
+# Or run them in separate terminals
+npm run dev:server
+npm run dev:client
 ```
 
 The dashboard will open at `http://localhost:3000`
