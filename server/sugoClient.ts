@@ -240,9 +240,35 @@ export class SugoClient extends EventEmitter {
       case 338: // Hello/auth success
         this.emit('hello', wire);
         break;
-      // TODO: Add more cmd handlers as we discover them
-      // Gift events, chat events, PK events, etc.
+
+      // Common cmd codes discovered in live streaming protocols
+      case 301: // Likely chat message (outgoing confirmation or incoming)
+      case 302:
+      case 310:
+      case 311:
+        this.emit('chat', wire);
+        break;
+
+      case 320: // Likely gift events
+      case 321:
+      case 322:
+        this.emit('gift', wire);
+        break;
+
+      case 330: // Likely PK/battle events
+      case 331:
+      case 332:
+        this.emit('pk', wire);
+        break;
+
+      case 340: // Likely join/leave events
+      case 341:
+        this.emit('join', wire);
+        break;
+
       default:
+        // Log unknown for discovery
+        this.emit('log', `Unknown cmd ${wire.cmd}: ${JSON.stringify(wire).slice(0, 100)}`);
         this.emit('unknown', wire);
         break;
     }

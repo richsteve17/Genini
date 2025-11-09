@@ -130,14 +130,46 @@ function buildSugo() {
     params: { channel: `room:${roomId}` }
   });
 
-  const makeSendFrame = (roomId: string, text: string) => JSON.stringify({
-    id: Date.now(),
-    method: 'publish',
-    params: {
-      channel: `room:${roomId}`,
-      data: { message: text }
-    }
-  });
+  const makeSendFrame = (roomId: string, text: string) => {
+    // SUGO uses cmd-based protocol (we saw cmd 338 for hello)
+    // Try common chat cmd codes: 301, 302, 310, or 311
+    // Multiple attempts with different common patterns
+    const attempts = [
+      // Pattern 1: Standard cmd-based chat
+      {
+        cmd: 301,
+        sn: Date.now(),
+        data: {
+          content: text,
+          room_id: roomId
+        }
+      },
+      // Pattern 2: Alternative field names
+      {
+        cmd: 302,
+        sn: Date.now(),
+        data: {
+          msg: text,
+          room: roomId
+        }
+      },
+      // Pattern 3: Message object wrapper
+      {
+        cmd: 310,
+        sn: Date.now(),
+        data: {
+          message: {
+            text: text,
+            type: 1
+          },
+          room_id: roomId
+        }
+      }
+    ];
+
+    // Try first pattern (most common)
+    return JSON.stringify(attempts[0]);
+  };
 
   // Refresh token from SUGO's HTTP endpoint before WS connect
   const refreshToken = async () => {
@@ -197,19 +229,23 @@ function buildSugo() {
     log(`SUGO hello cmd ${wire.cmd}: ${JSON.stringify(wire.data).slice(0, 100)}`);
   });
 
-  client.on('gift', (data) => {
-    // TODO: Wire to coordinator
-    log(`SUGO gift event: ${JSON.stringify(data).slice(0, 100)}`);
+  client.on('gift', (wire: SugoWireMessage) => {
+    tapGift(wire);
+    log(`SUGO gift cmd ${wire.cmd}: ${JSON.stringify(wire).slice(0, 150)}`);
+    // TODO: Wire to coordinator for ElHypeMan
   });
 
-  client.on('chat', (data) => {
-    // TODO: Wire to coordinator
-    log(`SUGO chat event: ${JSON.stringify(data).slice(0, 100)}`);
+  client.on('chat', (wire: SugoWireMessage) => {
+    tapChat(wire);
+    log(`SUGO chat cmd ${wire.cmd}: ${JSON.stringify(wire).slice(0, 150)}`);
+    // If this is confirmation of OUR message, we'll see the format we sent
+    // If it's someone else's message, we learn the incoming format
   });
 
-  client.on('pk', (data) => {
-    // TODO: Wire to coordinator
-    log(`SUGO PK event: ${JSON.stringify(data).slice(0, 100)}`);
+  client.on('pk', (wire: SugoWireMessage) => {
+    tapPK(wire);
+    log(`SUGO PK cmd ${wire.cmd}: ${JSON.stringify(wire).slice(0, 150)}`);
+    // TODO: Wire to coordinator for ElAnunciador
   });
 
   return client;
