@@ -289,28 +289,44 @@ export class SugoClient extends EventEmitter {
         this.emit('hello', wire);
         break;
 
-      // Common cmd codes discovered in live streaming protocols
-      case 301: // Likely chat message (outgoing confirmation or incoming)
+      case 330: // User info/handshake
+        this.emit('log', `👤 USER INFO (cmd 330): ${JSON.stringify(wire.data)}`);
+        break;
+
+      case 4611: // Chat message sent (outgoing)
+        this.emit('log', `📤 CHAT SENT (cmd 4611): ${JSON.stringify(wire)}`);
+        this.emit('chat', wire);
+        break;
+
+      case 4612: // Chat message ACK/response
+        if (wire.rc === 0) {
+          this.emit('log', `✅ CHAT ACK (cmd 4612): Message delivered successfully`);
+        } else {
+          this.emit('log', `❌ CHAT ERROR (cmd 4612): rc=${wire.rc} msg=${wire.msg}`);
+        }
+        break;
+
+      // Discovered chat message codes
+      case 301:
       case 302:
       case 310:
       case 311:
         this.emit('chat', wire);
-        this.emit('log', `🗨️ CHAT MESSAGE DETECTED (cmd ${wire.cmd}): ${JSON.stringify(wire, null, 2)}`);
+        this.emit('log', `🗨️ CHAT MESSAGE (cmd ${wire.cmd}): ${JSON.stringify(wire, null, 2)}`);
         break;
 
-      case 320: // Likely gift events
+      case 320: // Gift events
       case 321:
       case 322:
         this.emit('gift', wire);
         break;
 
-      case 330: // Likely PK/battle events
-      case 331:
+      case 331: // PK/battle events
       case 332:
         this.emit('pk', wire);
         break;
 
-      case 340: // Likely join/leave events
+      case 340: // Join/leave events
       case 341:
         this.emit('join', wire);
         break;

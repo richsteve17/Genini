@@ -138,45 +138,17 @@ function buildSugo() {
   let seqNum = 1;
   const nextSeq = () => seqNum++;
 
-  const makeSendFrame = (roomId: string, text: string) => {
-    // SUGO uses cmd-based protocol (we saw cmd 338 for hello)
-    // Server error showed "LargestInt out of range" when using Date.now()
-    // Use small incrementing sequence number instead
-    const attempts = [
-      // Pattern 1: Standard cmd-based chat
-      {
-        cmd: 301,
-        sn: nextSeq(),
-        data: {
-          content: text,
-          room_id: roomId
-        }
-      },
-      // Pattern 2: Alternative field names
-      {
-        cmd: 302,
-        sn: nextSeq(),
-        data: {
-          msg: text,
-          room: roomId
-        }
-      },
-      // Pattern 3: Message object wrapper
-      {
-        cmd: 310,
-        sn: nextSeq(),
-        data: {
-          message: {
-            text: text,
-            type: 1
-          },
-          room_id: roomId
-        }
+  const makeSendFrame = (_roomId: string, text: string) => {
+    // DISCOVERED FORMAT from Proxyman capture!
+    // cmd: 4611 sends chat messages
+    // params.content contains the message text
+    return JSON.stringify({
+      cmd: 4611,
+      sn: nextSeq(),
+      params: {
+        content: text
       }
-    ];
-
-    // Try first pattern (most common)
-    return JSON.stringify(attempts[0]);
+    });
   };
 
   // Refresh token from SUGO's HTTP endpoint before WS connect
