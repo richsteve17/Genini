@@ -221,6 +221,9 @@ export class SugoClient extends EventEmitter {
 
   // Cmd-based message router
   private routeMessage(text: string) {
+    // Log EVERY incoming message for discovery
+    this.emit('log', `WIRE<< ${text.slice(0, 500)}`);
+
     let wire: SugoWireMessage;
     try {
       wire = JSON.parse(text);
@@ -247,6 +250,7 @@ export class SugoClient extends EventEmitter {
       case 310:
       case 311:
         this.emit('chat', wire);
+        this.emit('log', `🗨️ CHAT MESSAGE DETECTED (cmd ${wire.cmd}): ${JSON.stringify(wire, null, 2)}`);
         break;
 
       case 320: // Likely gift events
@@ -267,8 +271,8 @@ export class SugoClient extends EventEmitter {
         break;
 
       default:
-        // Log unknown for discovery
-        this.emit('log', `Unknown cmd ${wire.cmd}: ${JSON.stringify(wire).slice(0, 100)}`);
+        // Log unknown for discovery with FULL details
+        this.emit('log', `❓ UNKNOWN CMD ${wire.cmd}: ${JSON.stringify(wire, null, 2)}`);
         this.emit('unknown', wire);
         break;
     }
